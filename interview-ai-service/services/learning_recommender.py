@@ -3,7 +3,7 @@ import re
 import json
 import logging
 import google.generativeai as genai
-from services.retriever import retrieve_context
+from rag.retriever import retrieve_context
 
 logger = logging.getLogger("learning_recommender")
 
