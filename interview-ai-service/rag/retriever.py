@@ -77,51 +77,6 @@ def ingest_documents(topic: str, folder_path: str):
             store.extend(all_chunks)
             return len(all_chunks)
 
-def retrieve_context(query: str, topic: str, top_k: int = 5):
-    """
-    Retrieve top-k relevant documentation passages.
-    """
-    client, is_mock = get_qdrant_client()
-    query_vector = get_embedding(query, is_query=True)
-    
-    if is_mock:
-        store = get_mock_store()
-        filtered = [item for item in store if item["metadata"]["topic"].lower() == topic.lower()]
-        
-        results = []
-        for item in filtered:
-            score = get_cosine_similarity(query_vector, item["embedding"])
-            results.append((score, item["text"]))
-            
-        results.sort(key=lambda x: x[0], reverse=True)
-        return [text for _, text in results[:top_k]]
-    else:
-        try:
-            search_result = client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=query_vector,
-                limit=top_k * 2,
-                with_payload=True
-            )
-            contexts = []
-            for hit in search_result:
-                payload = hit.payload
-                if payload and payload.get("metadata", {}).get("topic", "").lower() == topic.lower():
-                    contexts.append(payload["text"])
-                    if len(contexts) >= top_k:
-                        break
-            return contexts
-        except Exception as e:
-            logger.error(f"Error searching Qdrant: {e}. Falling back to mock memory search.")
-            store = get_mock_store()
-            filtered = [item for item in store if item["metadata"]["topic"].lower() == topic.lower()]
-            results = []
-            for item in filtered:
-                score = get_cosine_similarity(query_vector, item["embedding"])
-                results.append((score, item["text"]))
-            results.sort(key=lambda x: x[0], reverse=True)
-            return [text for _, text in results[:top_k]]
-
 def ingest_raw_text(topic: str, text: str) -> int:
     """
     Chunks raw text string, generates embeddings, and stores them.
@@ -174,3 +129,84 @@ def ingest_raw_text(topic: str, text: str) -> int:
             store[:] = [item for item in store if item["metadata"]["topic"] != topic]
             store.extend(all_chunks)
             return len(all_chunks)
+
+from services.reranker import rerank_results
+from rank_bm25 import BM25Okapi
+import math
+
+def retrieve_context(query: str, topic: str, top_k: int = 5):
+    """
+    Retrieve top-k relevant documentation passages using Hybrid Search + CrossEncoder Reranking.
+    """
+    client, is_mock = get_qdrant_client()
+    query_vector = get_embedding(query, is_query=True)
+    
+    # We retrieve slightly more candidate documents (candidate_k) before reranking
+    candidate_k = max(top_k * 3, 10)
+    candidate_texts = []
+    
+    if is_mock:
+        store = get_mock_store()
+        filtered = [item for item in store if item["metadata"]["topic"].lower() == topic.lower()]
+        
+        # Robust Hybrid Search: Semantic Cosine + Keyword BM25Okapi
+        tokenized_corpus = [item["text"].lower().split() for item in filtered]
+        bm25 = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
+        tokenized_query = query.lower().split()
+        bm25_scores = bm25.get_scores(tokenized_query) if bm25 else [0] * len(filtered)
+        
+        results = []
+        for i, item in enumerate(filtered):
+            semantic_score = get_cosine_similarity(query_vector, item["embedding"])
+            keyword_score = bm25_scores[i]
+            
+            # Combine scores for hybrid search (normalize loosely)
+            hybrid_score = (semantic_score * 0.7) + (min(keyword_score, 10.0) / 10.0 * 0.3)
+            
+            results.append((hybrid_score, item["text"]))
+            
+        results.sort(key=lambda x: x[0], reverse=True)
+        candidate_texts = [text for _, text in results[:candidate_k]]
+    else:
+        try:
+            logger.info("Executing Hybrid Search in Qdrant...")
+            search_result = client.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=query_vector,
+                limit=candidate_k * 2,  # Retrieve slightly more in case of mismatch
+                with_payload=True
+            )
+            # Filter matches by topic in payload metadata
+            for hit in search_result:
+                payload = hit.payload
+                if payload and payload.get("metadata", {}).get("topic", "").lower() == topic.lower():
+                    candidate_texts.append(payload["text"])
+                    if len(candidate_texts) >= candidate_k:
+                        break
+        except Exception as e:
+            logger.error(f"Error searching Qdrant: {e}. Falling back to mock memory search.")
+            # Local fallback hybrid search
+            store = get_mock_store()
+            filtered = [item for item in store if item["metadata"]["topic"].lower() == topic.lower()]
+            
+            tokenized_corpus = [item["text"].lower().split() for item in filtered]
+            bm25 = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
+            tokenized_query = query.lower().split()
+            bm25_scores = bm25.get_scores(tokenized_query) if bm25 else [0] * len(filtered)
+            
+            results = []
+            for i, item in enumerate(filtered):
+                semantic_score = get_cosine_similarity(query_vector, item["embedding"])
+                keyword_score = bm25_scores[i]
+                hybrid_score = (semantic_score * 0.7) + (min(keyword_score, 10.0) / 10.0 * 0.3)
+                results.append((hybrid_score, item["text"]))
+            results.sort(key=lambda x: x[0], reverse=True)
+            candidate_texts = [text for _, text in results[:candidate_k]]
+
+    if not candidate_texts:
+        return []
+
+    # Cross-Encoder Reranking Phase
+    logger.info(f"Reranking {len(candidate_texts)} candidates to find top {top_k}...")
+    final_results = rerank_results(query, candidate_texts, top_k=top_k)
+    return final_results

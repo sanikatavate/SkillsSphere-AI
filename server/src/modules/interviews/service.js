@@ -8,6 +8,7 @@ import {
   transcribeAudio,
   evaluateAnswer,
   generateCustomQuestions,
+  generateQuestions,
 } from "../../integrations/aiInterviewService.js";
 import redisClient from "../../config/redis.js";
 import Notification from "../../database/models/Notification.js";
@@ -69,6 +70,7 @@ const selectQuestions = async (topic, difficulty, userId, count = 5) => {
  */
 export const createSession = async ({ userId, topic, difficulty, persona }) => {
   let questions = [];
+  let aiTimeoutError = null;
 
   if (topic.startsWith("custom_notes_")) {
     const generated = await generateCustomQuestions(topic, difficulty);
@@ -90,13 +92,53 @@ export const createSession = async ({ userId, topic, difficulty, persona }) => {
       questions.push(dbQ);
     }
   } else {
-    // Verify the topic exists in our question bank
+    // Verify the topic exists in our question bank (as a safety check that it's a valid topic)
     const topicExists = await QuestionBank.exists({ topic });
     if (!topicExists) {
       throw new AppError(`Topic "${topic}" is not available`, 400);
     }
 
-    questions = await selectQuestions(topic, difficulty, userId);
+    // Get question texts from user's recent sessions to avoid repeats
+    const recentSessions = await InterviewSession.find({
+      userId,
+      topic,
+    })
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .select("answers.questionId")
+      .populate("answers.questionId", "questionText")
+      .lean();
+
+    const previouslyAsked = recentSessions
+      .flatMap((s) => s.answers.map((a) => a.questionId?.questionText))
+      .filter(Boolean);
+
+    let generatedQuestions = [];
+    try {
+      const aiResponse = await generateQuestions(topic, difficulty, previouslyAsked);
+      generatedQuestions = aiResponse.questions || [];
+    } catch (error) {
+      logger.warn(`Failed to dynamically generate questions: ${error.message}. Falling back to question bank.`);
+      if (error.name === "AITimeoutError") {
+        aiTimeoutError = error;
+        generatedQuestions = error.fallbackData?.questions || [];
+      }
+    }
+
+    if (generatedQuestions.length >= 5) {
+      // Save generated questions to QuestionBank so they get an _id
+      const docs = generatedQuestions.map(q => ({
+        topic,
+        difficulty,
+        subtopic: "dynamic",
+        questionText: q.questionText,
+        expectedAnswer: q.expectedAnswer,
+        expectedConcepts: q.expectedConcepts || []
+      }));
+      questions = await QuestionBank.insertMany(docs);
+    } else {
+      questions = await selectQuestions(topic, difficulty, userId);
+    }
   }
 
   // Pre-populate the answers array with question info (scores filled in later)
@@ -110,7 +152,7 @@ export const createSession = async ({ userId, topic, difficulty, persona }) => {
     },
   }));
 
- const session = await InterviewSession.create({
+  const session = await InterviewSession.create({
     userId,
     topic,
     difficulty,
@@ -119,7 +161,12 @@ export const createSession = async ({ userId, topic, difficulty, persona }) => {
     currentQuestionIndex: 0,
     startedAt: new Date(),
     ...(persona && { persona }),
-});
+  });
+
+  if (aiTimeoutError) {
+    aiTimeoutError.session = session;
+    throw aiTimeoutError;
+  }
 
   return session;
 };
@@ -254,9 +301,7 @@ export const processAnswerSubmission = async ({
     const nextAudioPath = audioFile?.path || null;
 
     if (audioFile) {
-if (audioFile) {
-        session.answers[currentIndex].audioPath = nextAudioPath;
-      }
+      session.answers[currentIndex].audioPath = nextAudioPath;
     }
 
     // Move to next question

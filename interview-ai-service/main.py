@@ -38,8 +38,13 @@ async def routes():
         }
     }
 
+from routers.recommendations import router as recommendations_router
+from routers.interview import router as routers_interview_router
+
 # Register routers under /api prefix
 app.include_router(transcription_router, prefix="/api")
 app.include_router(evaluation_router, prefix="/api")
 app.include_router(retrieval_router, prefix="/api")
 app.include_router(interview_router, prefix="/api")
+app.include_router(recommendations_router, prefix="/api")
+app.include_router(routers_interview_router, prefix="/api")

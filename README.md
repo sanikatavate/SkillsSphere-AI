@@ -1,10 +1,5 @@
 <a name="top"></a>
 ![----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-![NSOC'26](https://img.shields.io/badge/NSOC-2026-orange?style=for-the-badge)
-
-**This project is officially registered under nexus spring of code 2026.**
-
 ![----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
 
 # SkillSphere AI
@@ -203,6 +198,19 @@ Access the applications:
 - **Client**: [http://localhost:5173](http://localhost:5173)
 - **Server**: [http://localhost:5000](http://localhost:5000)
 - **AI Microservice**: [http://localhost:8000](http://localhost:8000)
+
+### 4. Seed the Vector Database (RAG)
+
+Once the containers are running, you must ingest the learning materials into the local Qdrant database to enable the AI Mock Interview system:
+
+```bash
+# If using Docker
+docker-compose exec interview-ai-service python rag/ingestion.py
+
+# If running the Python service locally outside Docker
+cd interview-ai-service
+python rag/ingestion.py
+```
 
 To stop the containers, press `Ctrl+C` or run `docker-compose down`.
 
