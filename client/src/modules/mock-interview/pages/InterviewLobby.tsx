@@ -9,7 +9,7 @@ import PersonaSelector from "../components/PersonaSelector";
 import Button from "../../../shared/components/Button";
 import Select from "../../../shared/components/Select";
 import { Play, GraduationCap, History, Loader2, Sparkles, ArrowLeft, Brain, Briefcase, Zap, ChevronRight } from "lucide-react";
-import { getTopics, startSession } from "../services/interviewService";
+import { getTopics, startSession, uploadCustomNotes } from "../services/interviewService";
 import { useDocumentTitle } from "../../../hooks/useDocumentTitle";
 
 import logger from "../../../utils/logger";
@@ -31,6 +31,32 @@ const InterviewLobby = () => {
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
+
+  const [mode, setMode] = useState("standard"); // 'standard' | 'custom'
+  const [uploading, setUploading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+    setUploadedFile(null);
+
+    try {
+      const res = await uploadCustomNotes(file);
+      if (res.success && res.topic) {
+        setTopic(res.topic);
+        setUploadedFile(file.name);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to parse study notes. Try a text file.");
+      logger.error("[InterviewLobby] Error uploading custom notes:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchTopics = async () => {
@@ -148,21 +174,75 @@ const InterviewLobby = () => {
                   Interview Domain
                 </h3>
                 
+                <div className="flex border-b border-gray-200 dark:border-slate-800 mb-6 gap-6">
+                  <button
+                    onClick={() => { setMode("standard"); setUploadedFile(null); setError(null); }}
+                    className={`pb-3 font-bold text-sm transition-colors border-b-2 ${
+                      mode === "standard" 
+                        ? "border-indigo-500 text-indigo-600 dark:text-indigo-400" 
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Standard Topics
+                  </button>
+                  <button
+                    onClick={() => { setMode("custom"); setTopic(""); setUploadedFile(null); setError(null); }}
+                    className={`pb-3 font-bold text-sm transition-colors border-b-2 ${
+                      mode === "custom" 
+                        ? "border-indigo-500 text-indigo-600 dark:text-indigo-400" 
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Custom Study Notes (RAG)
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Technical Subject</label>
-                    {loading ? (
-                      <div className="h-[42px] bg-gray-100 dark:bg-slate-800 animate-pulse rounded-xl" />
-                    ) : (
-                      // @ts-expect-error TODO: Fix pervasive types
-                      <Select
-                        options={topicOptions}
-                        value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-slate-900 border-border rounded-xl focus:ring-2 focus:ring-indigo-500 shadow-sm transition-all"
-                      />
-                    )}
-                  </div>
+                  {mode === "standard" ? (
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Technical Subject</label>
+                      {loading ? (
+                        <div className="h-[42px] bg-gray-100 dark:bg-slate-800 animate-pulse rounded-xl" />
+                      ) : (
+                        // @ts-expect-error TODO: Fix pervasive types
+                        <Select
+                          options={topicOptions}
+                          value={topic}
+                          onChange={(e) => setTopic(e.target.value)}
+                          className="w-full bg-gray-50 dark:bg-slate-900 border-border rounded-xl focus:ring-2 focus:ring-indigo-500 shadow-sm transition-all"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Upload Notes (PDF/Docx/Txt)</label>
+                      <div className="relative border-2 border-dashed border-gray-300 dark:border-slate-800 rounded-2xl p-4 text-center hover:border-indigo-500 transition-colors flex flex-col items-center justify-center min-h-[100px] bg-gray-50 dark:bg-slate-900/50">
+                        {uploading ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <Loader2 className="animate-spin text-indigo-500" size={24} />
+                            <span className="text-xs font-bold text-slate-400">Analyzing & indexing study material...</span>
+                          </div>
+                        ) : uploadedFile ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-emerald-500 font-bold text-xs">✓ Ingested successfully</span>
+                            <span className="text-sm font-semibold truncate max-w-[200px] text-slate-700 dark:text-slate-300">{uploadedFile}</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <input
+                              type="file"
+                              accept=".pdf,.docx,.txt,.md"
+                              onChange={handleFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                            <span className="text-xs font-bold text-slate-400 mb-1">Click or drag study file here</span>
+                            <span className="text-[10px] text-slate-500 font-medium">Supports PDF, DOCX, TXT up to 5MB</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Difficulty Base</label>
                     {/* @ts-expect-error TODO: Fix pervasive types */}
@@ -178,7 +258,9 @@ const InterviewLobby = () => {
                 <div className="mt-6 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 flex items-start gap-3">
                   <Zap size={18} className="text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200 leading-relaxed">
-                    The engine selects 5 scenario-based questions. Question difficulty scales dynamically based on your accuracy in previous answers.
+                    {mode === "standard" 
+                      ? "The engine selects 5 scenario-based questions. Question difficulty scales dynamically based on your accuracy in previous answers."
+                      : "The AI engine dynamically generates 5 interview questions grounded strictly in your custom uploaded notes."}
                   </p>
                 </div>
               </div>

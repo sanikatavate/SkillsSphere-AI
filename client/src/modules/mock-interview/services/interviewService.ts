@@ -86,3 +86,18 @@ export const getBookmarkedQuestions = async () => {
     token: getToken(),
   });
 };
+
+/**
+ * Upload custom study notes for a RAG interview session.
+ * @param {File} file - The PDF, DOCX, TXT, or MD file containing custom study material.
+ */
+export const uploadCustomNotes = async (file) => {
+  const formData = new FormData();
+  formData.append("notes", file);
+
+  return apiRequest("/api/interviews/custom-ingest", {
+    method: "POST",
+    token: getToken(),
+    body: formData,
+  });
+};

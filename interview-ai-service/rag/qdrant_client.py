@@ -1,11 +1,8 @@
-import os
 from qdrant_client import QdrantClient
+import config
 import logging
 
 logger = logging.getLogger("qdrant")
-
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 
 _client = None
 _is_mock = False
@@ -19,14 +16,14 @@ def get_qdrant_client():
         return _client, _is_mock
 
     try:
-        # Try connecting to the live Qdrant container
-        _client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, timeout=3.0)
+        # Try connecting to the live Qdrant container using config
+        _client = QdrantClient(host=config.QDRANT_HOST, port=config.QDRANT_PORT, timeout=3.0)
         # Test connection by listing collections
         _client.get_collections()
         _is_mock = False
-        logger.info(f"Connected to Qdrant at {QDRANT_HOST}:{QDRANT_PORT}")
+        logger.info(f"Connected to Qdrant at {config.QDRANT_HOST}:{config.QDRANT_PORT}")
     except Exception as e:
-        logger.warning(f"Failed to connect to Qdrant at {QDRANT_HOST}:{QDRANT_PORT}: {e}")
+        logger.warning(f"Failed to connect to Qdrant at {config.QDRANT_HOST}:{config.QDRANT_PORT}: {e}")
         logger.warning("Falling back to local in-memory mock Vector Store.")
         _client = None
         _is_mock = True

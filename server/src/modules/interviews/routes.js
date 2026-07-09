@@ -28,6 +28,7 @@ import {
   submitAnswer,
   submitTutorFeedback,
 } from "./controller.js";
+import { parseCustomNotesUpload, handleCustomNotesIngest } from "./customIngest.js";
 
 const router = express.Router();
 
@@ -140,6 +141,8 @@ const upload = multer({
 
 // All interview routes require authentication
 router.use(protect);
+
+router.post("/custom-ingest", parseCustomNotesUpload, handleCustomNotesIngest);
 
 // Topic discovery
 /**

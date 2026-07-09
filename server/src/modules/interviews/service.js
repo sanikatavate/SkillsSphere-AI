@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import {
   transcribeAudio,
   evaluateAnswer,
+  generateCustomQuestions,
 } from "../../integrations/aiInterviewService.js";
 import redisClient from "../../config/redis.js";
 import Notification from "../../database/models/Notification.js";
@@ -67,13 +68,36 @@ const selectQuestions = async (topic, difficulty, userId, count = 5) => {
  * Create a new interview session with pre-selected questions.
  */
 export const createSession = async ({ userId, topic, difficulty, persona }) => {
-  // Verify the topic exists in our question bank
-  const topicExists = await QuestionBank.exists({ topic });
-  if (!topicExists) {
-    throw new AppError(`Topic "${topic}" is not available`, 400);
-  }
+  let questions = [];
 
-  const questions = await selectQuestions(topic, difficulty, userId);
+  if (topic.startsWith("custom_notes_")) {
+    const generated = await generateCustomQuestions(topic, difficulty);
+    const questionsList = generated?.questions || [];
+    
+    if (questionsList.length === 0) {
+      throw new AppError("Failed to generate questions from custom notes.", 500);
+    }
+
+    for (const q of questionsList) {
+      const dbQ = await QuestionBank.create({
+        topic: topic.toLowerCase(),
+        subtopic: "custom",
+        difficulty,
+        questionText: q.questionText,
+        expectedConcepts: q.expectedConcepts || ["general"],
+        expectedAnswer: q.expectedAnswer || "Dynamic model answer reference.",
+      });
+      questions.push(dbQ);
+    }
+  } else {
+    // Verify the topic exists in our question bank
+    const topicExists = await QuestionBank.exists({ topic });
+    if (!topicExists) {
+      throw new AppError(`Topic "${topic}" is not available`, 400);
+    }
+
+    questions = await selectQuestions(topic, difficulty, userId);
+  }
 
   // Pre-populate the answers array with question info (scores filled in later)
   const answers = questions.map((q) => ({

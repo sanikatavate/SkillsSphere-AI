@@ -1,13 +1,11 @@
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from services.nlp_service import detect_concepts
 from services.communication_analyzer import analyze_communication
-from services.retriever import retrieve_context
-from services.evaluator import evaluate_with_rag
+from rag.retriever import retrieve_context
+from rag.evaluator import evaluate_with_rag
 
 router = APIRouter()
-
 
 class EvaluationRequest(BaseModel):
     transcript: str
@@ -15,11 +13,9 @@ class EvaluationRequest(BaseModel):
     expectedConcepts: List[str]
     topic: Optional[str] = "React"
 
-
 class ConceptResult(BaseModel):
     detected: List[str]
     missed: List[str]
-
 
 class EvaluationResponse(BaseModel):
     technical: int
@@ -30,7 +26,6 @@ class EvaluationResponse(BaseModel):
     speakingSpeed: str
     weakConcepts: List[str] = []
     feedback: str = ""
-
 
 @router.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_answer(request: EvaluationRequest):

@@ -66,3 +66,53 @@ def chunk_document(file_path: str, topic: str, chunk_size: int = 600, overlap: i
                     break
 
     return chunks
+
+def chunk_text(text: str, topic: str, chunk_size: int = 600, overlap: int = 100):
+    """
+    Cleans and splits raw text into semantic chunks.
+    """
+    text = clean_text(text)
+    sections = re.split(r'\n(?=##?\s+)', text)
+    
+    chunks = []
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+            
+        first_line = section.split('\n')[0]
+        if first_line.startswith('#'):
+            subtopic = re.sub(r'^##?\s+', '', first_line).strip()
+        else:
+            subtopic = "General"
+            
+        words = section.split()
+        if len(words) <= chunk_size:
+            chunks.append({
+                "text": clean_text(section),
+                "metadata": {
+                    "topic": topic,
+                    "subtopic": subtopic
+                }
+            })
+        else:
+            start = 0
+            chunk_idx = 1
+            while start < len(words):
+                end = min(start + chunk_size, len(words))
+                chunk_words = words[start:end]
+                chunk_text_content = " ".join(chunk_words)
+                
+                chunks.append({
+                    "text": clean_text(f"Topic: {subtopic} (Part {chunk_idx})\n\n{chunk_text_content}"),
+                    "metadata": {
+                        "topic": topic,
+                        "subtopic": subtopic
+                    }
+                })
+                
+                start += (chunk_size - overlap)
+                chunk_idx += 1
+                if end == len(words):
+                    break
+    return chunks

@@ -267,12 +267,89 @@ export const evaluateAnswer = async (
       return mockEvaluate(transcript, expectedAnswer, expectedConcepts);
     }
 
-    logger.warn(
-      `[aiInterviewService] ⚠️ Evaluation failed: ${err.message}`
-    );
     logger.warn("[aiInterviewService] Falling back to mock evaluation");
     return mockEvaluate(transcript, expectedAnswer, expectedConcepts);
   }
+};
+
+/**
+ * Ingest raw text for custom RAG evaluation.
+ *
+ * @param {string} topic - The unique topic identifier
+ * @param {string} text - The extracted document text
+ * @returns {Promise<object>} Python response
+ */
+export const ingestCustomText = async (topic, text) => {
+  const available = await isServiceAvailable();
+  if (!available) {
+    logger.warn("[aiInterviewService] ⚠️ Python service unavailable for custom notes ingestion");
+    return { status: "success", message: "Mock ingestion completed (offline mode)", chunks: 1 };
+  }
+
+  const res = await fetchWithRetry(
+    "/api/ingest-text",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, text }),
+    },
+    EVAL_TIMEOUT * 2
+  );
+  return res.json();
+};
+
+/**
+ * Generate dynamic questions based on RAG context.
+ *
+ * @param {string} topic - The unique topic identifier
+ * @param {string} difficulty - The difficulty level (easy, medium, hard)
+ * @returns {Promise<object>} Generated questions
+ */
+export const generateCustomQuestions = async (topic, difficulty) => {
+  const available = await isServiceAvailable();
+  if (!available) {
+    logger.warn("[aiInterviewService] ⚠️ Python service unavailable, returning mock custom questions");
+    return {
+      questions: [
+        {
+          questionText: "Can you explain the main concepts from your uploaded study material?",
+          expectedAnswer: "General concepts of custom study material.",
+          expectedConcepts: ["concept", "implementation"]
+        },
+        {
+          questionText: "What is the primary usage pattern described in your document?",
+          expectedAnswer: "Primary patterns of study material.",
+          expectedConcepts: ["patterns", "usecases"]
+        },
+        {
+          questionText: "How do you apply the architecture outlined in your uploaded notes?",
+          expectedAnswer: "Architecture of study material.",
+          expectedConcepts: ["architecture", "design"]
+        },
+        {
+          questionText: "Describe a common pitfall or error handling strategy in this context.",
+          expectedAnswer: "Error handling of study material.",
+          expectedConcepts: ["pitfalls", "errors"]
+        },
+        {
+          questionText: "Compare the methods mentioned in your document with standard industry alternatives.",
+          expectedAnswer: "Alternative options of study material.",
+          expectedConcepts: ["alternatives", "comparisons"]
+        }
+      ]
+    };
+  }
+
+  const res = await fetchWithRetry(
+    "/api/interview/generate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, difficulty }),
+    },
+    EVAL_TIMEOUT * 2
+  );
+  return res.json();
 };
 
 /**
